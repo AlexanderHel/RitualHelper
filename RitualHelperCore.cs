@@ -66,7 +66,7 @@ namespace RitualHelper
                 return;
             }
 
-            if (Core.States.GameCurrentState != GameStateTypes.InGameState)
+            if (Core.States.GameCurrentState != GameStateTypes.InGameState || !Core.Process.Foreground)
             {
                 return;
             }

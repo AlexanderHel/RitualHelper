@@ -340,42 +340,30 @@ namespace RitualHelper
                 }
             }
 
-            var modsComp = ResolveComponent(item, "Mods");
-            if (modsComp != IntPtr.Zero)
+            var modsCompAddr = ResolveComponent(item, "Mods");
+            if (modsCompAddr != IntPtr.Zero)
             {
-                var idf = Mem.Read<byte>(modsComp + 0x90);
-                identity.Identified = idf != 0;
+                var modsComp = new Mods(modsCompAddr);
+                identity.Rarity = modsComp.Rarity;
                 
-                var r = Mem.Read<int>(modsComp + 0x94);
-                if (r >= 0 && r <= 3)
-                {
-                    identity.Rarity = (Rarity)r;
-                }
+                var idf = Mem.Read<byte>(modsComp.Address + 0x90);
+                identity.Identified = idf != 0;
             }
 
-            var renderItem = ResolveComponent(item, "RenderItem");
-            if (renderItem != IntPtr.Zero)
+            var renderItemAddr = ResolveComponent(item, "RenderItem");
+            if (renderItemAddr != IntPtr.Zero)
             {
-                var pathPtr = Ptr(renderItem + 0x28);
-                if (pathPtr != IntPtr.Zero)
-                {
-                    var fullPath = Mem.ReadWideString(pathPtr, 256);
-                    identity.Art = ArtBasename(fullPath);
-                }
+                var renderComp = new RenderItem(renderItemAddr);
+                identity.Art = ArtBasename(renderComp.ResourcePath);
             }
 
-            var baseComp = ResolveComponent(item, "Base");
-            if (baseComp != IntPtr.Zero)
+            var baseCompAddr = ResolveComponent(item, "Base");
+            if (baseCompAddr != IntPtr.Zero)
             {
-                var nameRow = Ptr(baseComp + 0x10);
-                var namePtr = nameRow == IntPtr.Zero ? IntPtr.Zero : Ptr(nameRow + 0x30);
-                if (namePtr != IntPtr.Zero)
+                var baseComp = new Base(baseCompAddr);
+                if (!string.IsNullOrWhiteSpace(baseComp.BaseItemName))
                 {
-                    var s = Mem.ReadWideString(namePtr, 256);
-                    if (!string.IsNullOrWhiteSpace(s))
-                    {
-                        identity.Name = s.Trim();
-                    }
+                    identity.Name = baseComp.BaseItemName.Trim();
                 }
             }
 
@@ -553,31 +541,18 @@ namespace RitualHelper
         }
         private System.Collections.Generic.Dictionary<string, string> customNamesCache = null;
 
-        private static string GetRunicSuffix(IntPtr modsComp)
+        private static string GetRunicSuffix(IntPtr modsCompAddr)
         {
-            if (modsComp == IntPtr.Zero) return "";
+            if (modsCompAddr == IntPtr.Zero) return "";
             
-            var implicitMods = Mem.Read<StdVector>(modsComp + 0xA0);
-            var first = implicitMods.First;
-            var last = implicitMods.Last;
-            var size = ((long)last - (long)first) / 0x40; // ModArrayStruct is 0x40 bytes
-            if (size <= 0 || size > 30) return "";
-            
-            for (long i = 0; i < size; i++)
+            var modsComp = new Mods(modsCompAddr);
+            foreach (var mod in modsComp.ImplicitMods)
             {
-                var modEntry = first + (int)(i * 0x40);
-                var modsPtr = Mem.Read<IntPtr>(modEntry + 0x28);
-                if (modsPtr == IntPtr.Zero) continue;
-                
-                var modIdPtr = Mem.Read<IntPtr>(modsPtr);
-                if (modIdPtr == IntPtr.Zero) continue;
-                
-                var modId = Mem.ReadAsciiString(modIdPtr, 64);
-                if (modId.Contains("RuneForged", StringComparison.OrdinalIgnoreCase))
+                if (mod.name.Contains("RuneForged", StringComparison.OrdinalIgnoreCase))
                 {
                     return "Runeforged";
                 }
-                if (modId.Contains("RuneMastered", StringComparison.OrdinalIgnoreCase))
+                if (mod.name.Contains("RuneMastered", StringComparison.OrdinalIgnoreCase))
                 {
                     return "Runemastered";
                 }

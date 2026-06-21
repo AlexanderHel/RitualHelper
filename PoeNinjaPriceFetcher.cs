@@ -29,7 +29,7 @@ namespace RitualHelper
         private static string cacheFilePath;
         public static double DivineToExaltedRate { get; private set; } = 80.0; // default fallback
 
-        /// <summary>Returns a display-ready (value, currency) pair. If price < 1 Div, converts to Ex.</summary>
+        /// <summary>Returns a display-ready (value, currency) pair. If price &lt; 1 Div, converts to Ex.</summary>
         public static (double Value, string Currency) GetDisplayPrice(PoeNinjaPrice price)
         {
             if (price.Currency == "divine" && price.Price < 1.0)

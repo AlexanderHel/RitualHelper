@@ -9,6 +9,7 @@ namespace RitualHelper
     using System.IO;
     using System.Numerics;
     using System.Reflection;
+    using System.Text;
     using GameHelper;
     using GameHelper.Plugin;
     using GameHelper.RemoteEnums;
@@ -49,6 +50,12 @@ namespace RitualHelper
             ImGui.TextWrapped(
                 "This plugin uses a signature-based BFS scan to locate the post-ritual tribute shop " +
                 "and displays prices below each item. Open the Ritual window in-game for items to appear.");
+        }
+
+        /// <inheritdoc/>
+        public override void OnDisable()
+        {
+            Mem.Close();
         }
 
         /// <inheritdoc/>
@@ -227,17 +234,15 @@ namespace RitualHelper
 
         private static IntPtr Ptr(IntPtr addr)
         {
-            var reader = Core.Process.Handle;
-            if (!reader.TryReadMemory<IntPtr>(addr, out var p)) return IntPtr.Zero;
+            var p = Mem.Read<IntPtr>(addr);
+            if (p == IntPtr.Zero) return IntPtr.Zero;
             var u = (ulong)p;
             return (u < 0x10000 || u > 0x7FFFFFFFFFFF) ? IntPtr.Zero : p;
         }
 
         private static string ReadStdWString(IntPtr addr)
         {
-            var reader = Core.Process.Handle;
-            if (!reader.TryReadMemory<StdWString>(addr, out var wstr)) return string.Empty;
-            return reader.ReadStdWString(wstr);
+            return Mem.ReadStdWString(addr);
         }
 
         private static string ReadMetadata(IntPtr entity)
@@ -258,17 +263,17 @@ namespace RitualHelper
 
         private static IntPtr ResolveComponent(IntPtr entity, string name)
         {
-            var reader = Core.Process.Handle;
             var details = Ptr(entity + 0x08);
             if (details == IntPtr.Zero) return IntPtr.Zero;
             var lookup = Ptr(details + 0x28);
             if (lookup == IntPtr.Zero) return IntPtr.Zero;
-            var compList = reader.ReadMemory<StdVector>(entity + 0x10);
+            var compList = Mem.Read<StdVector>(entity + 0x10);
             var compCount = ((long)compList.Last - (long)compList.First) / 8;
             if (compCount <= 0 || compCount > 256) return IntPtr.Zero;
 
             var bFirst = Ptr(lookup + 0x28);
-            if (!reader.TryReadMemory<IntPtr>(lookup + 0x30, out var bLast)) return IntPtr.Zero;
+            var bLast = Mem.Read<IntPtr>(lookup + 0x30);
+            if (bLast == IntPtr.Zero) return IntPtr.Zero;
             var entries = ((long)bLast - (long)bFirst) / 16;
             if (bFirst == IntPtr.Zero || entries <= 0 || entries > 256) return IntPtr.Zero;
 
@@ -276,9 +281,18 @@ namespace RitualHelper
             {
                 var e = bFirst + (int)(i * 16);
                 var namePtr = Ptr(e);
-                if (!reader.TryReadMemory<int>(e + 8, out var index)) continue;
+                var index = Mem.Read<int>(e + 8);
                 if (index < 0 || index >= compCount) continue;
-                var compName = reader.ReadString(namePtr);
+                
+                // Read the ASCII component name
+                var bytes = Mem.ReadBytes(namePtr, 64);
+                string compName = "";
+                if (bytes.Length > 0)
+                {
+                    int z = Array.IndexOf(bytes, (byte)0);
+                    compName = z >= 0 ? Encoding.ASCII.GetString(bytes, 0, z) : Encoding.ASCII.GetString(bytes);
+                }
+                
                 if (compName != name) continue;
                 return Ptr(compList.First + (int)(index * 8));
             }
@@ -312,17 +326,13 @@ namespace RitualHelper
             var modsComp = ResolveComponent(item, "Mods");
             if (modsComp != IntPtr.Zero)
             {
-                var reader = Core.Process.Handle;
-                if (reader.TryReadMemory<byte>(modsComp + 0x90, out var idf))
+                var idf = Mem.Read<byte>(modsComp + 0x90);
+                identity.Identified = idf != 0;
+                
+                var r = Mem.Read<int>(modsComp + 0x94);
+                if (r >= 0 && r <= 3)
                 {
-                    identity.Identified = idf != 0;
-                }
-                if (reader.TryReadMemory<int>(modsComp + 0x94, out var r))
-                {
-                    if (r >= 0 && r <= 3)
-                    {
-                        identity.Rarity = (Rarity)r;
-                    }
+                    identity.Rarity = (Rarity)r;
                 }
             }
 
@@ -332,7 +342,7 @@ namespace RitualHelper
                 var pathPtr = Ptr(renderItem + 0x28);
                 if (pathPtr != IntPtr.Zero)
                 {
-                    var fullPath = Core.Process.Handle.ReadUnicodeString(pathPtr);
+                    var fullPath = Mem.ReadWideString(pathPtr, 256);
                     identity.Art = ArtBasename(fullPath);
                 }
             }
@@ -344,7 +354,7 @@ namespace RitualHelper
                 var namePtr = nameRow == IntPtr.Zero ? IntPtr.Zero : Ptr(nameRow + 0x30);
                 if (namePtr != IntPtr.Zero)
                 {
-                    var s = Core.Process.Handle.ReadUnicodeString(namePtr);
+                    var s = Mem.ReadWideString(namePtr, 256);
                     if (!string.IsNullOrWhiteSpace(s))
                     {
                         identity.Name = s.Trim();
@@ -357,11 +367,11 @@ namespace RitualHelper
 
         private static bool ChildSpan(IntPtr el, out IntPtr first, out long n)
         {
-            var reader = Core.Process.Handle;
             first = Ptr(el + 0x10);
             n = 0;
             if (first == IntPtr.Zero) return false;
-            if (!reader.TryReadMemory<IntPtr>(el + 0x18, out var last)) return false;
+            var last = Mem.Read<IntPtr>(el + 0x18);
+            if (last == IntPtr.Zero) return false;
             n = ((long)last - (long)first) / 8;
             return n > 0 && n <= 4000;
         }
@@ -399,7 +409,6 @@ namespace RitualHelper
         private static IntPtr FindSignatureElement(IntPtr uiRoot)
         {
             if (uiRoot == IntPtr.Zero) return IntPtr.Zero;
-            var reader = Core.Process.Handle;
 
             var queue = new Queue<IntPtr>();
             queue.Enqueue(uiRoot);
@@ -409,7 +418,8 @@ namespace RitualHelper
                 var el = queue.Dequeue();
                 if (el == IntPtr.Zero || !visited.Add(el)) continue;
 
-                var visible = reader.TryReadMemory<uint>(el + 0x180, out var flags) && (flags & (1u << 0x0B)) != 0;
+                var flags = Mem.Read<uint>(el + 0x180);
+                var visible = (flags & (1u << 0x0B)) != 0;
                 if (!visible && el != uiRoot) continue; // prune invisible subtree
 
                 if (ChildSpan(el, out var f, out var nn))
@@ -421,9 +431,9 @@ namespace RitualHelper
                 }
 
                 var textAddr = el + 0x390;
-                if (reader.TryReadMemory<StdWString>(textAddr, out var wstr) && wstr.Length >= 6)
+                var t = Mem.ReadStdWString(textAddr);
+                if (!string.IsNullOrEmpty(t) && t.Length >= 6)
                 {
-                    var t = reader.ReadStdWString(wstr);
                     if (t.Contains("Rituals Remaining", StringComparison.OrdinalIgnoreCase) ||
                         t.Contains("tribute to the king", StringComparison.OrdinalIgnoreCase))
                     {
@@ -438,13 +448,13 @@ namespace RitualHelper
         {
             x = y = w = h = 0f;
             if (el == IntPtr.Zero) return false;
-            var reader = Core.Process.Handle;
-            if (!reader.TryReadMemory<uint>(el + 0x180, out var flags)) return false;
+            
+            var flags = Mem.Read<uint>(el + 0x180);
             if ((flags & (1u << 0x0B)) == 0) return false;
 
-            if (!reader.TryReadMemory<byte>(el + 0x18A, out var idx)) return false;
-            reader.TryReadMemory<float>(el + 0x130, out var mul);
-            reader.TryReadMemory<Vector2>(el + 0x288, out var sz);
+            var idx = Mem.Read<byte>(el + 0x18A);
+            var mul = Mem.Read<float>(el + 0x130);
+            var sz = Mem.Read<Vector2>(el + 0x288);
 
             var (sw, sh) = UiScaleValue(idx, mul, winW, winH);
             if (sw <= 0f || sh <= 0f) return false;
@@ -471,16 +481,16 @@ namespace RitualHelper
 
         private static (float x, float y) UiUnscaledPos(IntPtr el, int depth, float winW, float winH)
         {
-            var reader = Core.Process.Handle;
-            reader.TryReadMemory<Vector2>(el + 0x118, out var rel);
+            var rel = Mem.Read<Vector2>(el + 0x118);
             var parent = Ptr(el + 0xB8);
             if (parent == IntPtr.Zero || depth >= 64) return (rel.X, rel.Y);
 
             var (ppx, ppy) = UiUnscaledPos(parent, depth + 1, winW, winH);
 
-            if (reader.TryReadMemory<uint>(el + 0x180, out var flags) && (flags & (1u << 0x0A)) != 0)
+            var flags = Mem.Read<uint>(el + 0x180);
+            if ((flags & (1u << 0x0A)) != 0)
             {
-                reader.TryReadMemory<Vector2>(el + 0xF0, out var mod);
+                var mod = Mem.Read<Vector2>(el + 0xF0);
                 ppx += mod.X; ppy += mod.Y;
             }
             return (ppx + rel.X, ppy + rel.Y);
@@ -609,10 +619,6 @@ namespace RitualHelper
             return clean;
         }
 
-        /// <inheritdoc/>
-        public override void OnDisable()
-        {
-        }
 
         /// <inheritdoc/>
         public override void OnEnable(bool isGameOpened)

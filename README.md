@@ -15,8 +15,7 @@ RitualHelper is a lightweight, high-performance plugin for [GameHelper](https://
 1. Ensure you have [GameHelper](https://github.com/Queuete/GameHelper) installed.
 2. Download or clone this repository into the `Plugins` folder of your GameHelper installation:
    `GameHelper/Plugins/RitualHelper/`
-3. **IMPORTANT**: The GameHelper framework must be updated to include `[assembly: InternalsVisibleTo("RitualHelper")]` in its `GameHelper/Core.cs` file. 
-   > **Note:** Because this plugin reads raw memory for extreme performance, it relies on `internal` methods within GameHelper's memory reader. If you do not add this line to GameHelper's `Core.cs`, the plugin **will fail to compile** and will not run.
+3. The plugin is 100% standalone and uses its own lightweight memory reader to extract POE2 UI data natively, meaning no modifications to GameHelper's `Core.cs` are required.
 4. Compile the plugin using `dotnet build` or allow GameHelper to auto-compile it on startup.
 5. Launch the game and GameHelper. The plugin will silently download the latest poe.ninja prices.
 

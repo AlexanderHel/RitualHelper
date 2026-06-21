@@ -90,6 +90,17 @@ namespace RitualHelper
             return z >= 0 ? s.Substring(0, z) : s;
         }
 
+        public static string ReadAsciiString(IntPtr address, int maxChars)
+        {
+            if (address == IntPtr.Zero || maxChars <= 0)
+                return string.Empty;
+            var bytes = ReadBytes(address, maxChars);
+            if (bytes.Length == 0)
+                return string.Empty;
+            int z = Array.IndexOf(bytes, (byte)0);
+            return z >= 0 ? Encoding.ASCII.GetString(bytes, 0, z) : Encoding.ASCII.GetString(bytes);
+        }
+
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CloseHandle(IntPtr hObject);
     }

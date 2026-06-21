@@ -312,13 +312,16 @@ namespace RitualHelper
 
                     // Determine the cache key based on whether it is Runeforged or Runemastered
                     string cacheKey = name;
+                    bool isRunic = false;
                     if (baseType.Contains("Runeforged", StringComparison.OrdinalIgnoreCase))
                     {
                         cacheKey = name + " Runeforged";
+                        isRunic = true;
                     }
                     else if (baseType.Contains("Runemastered", StringComparison.OrdinalIgnoreCase))
                     {
                         cacheKey = name + " Runemastered";
+                        isRunic = true;
                     }
 
                     // Only write if not already set (keeps the highest-priced variant)
@@ -332,7 +335,7 @@ namespace RitualHelper
                     }
 
                     var art = ArtBasenameFromIcon(line["icon"]?.ToString());
-                    if (art != null)
+                    if (art != null && !isRunic)
                     {
                         if (!artPriceCache.ContainsKey(art))
                         {

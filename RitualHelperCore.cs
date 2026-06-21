@@ -121,10 +121,27 @@ namespace RitualHelper
 
                                 if (identity.Rarity == Rarity.Unique)
                                 {
-                                    if (!string.IsNullOrEmpty(identity.Art))
+                                    // Check for runic suffix (Runeforged / Runemastered)
+                                    var modsComp = ResolveComponent(item, "Mods");
+                                    var runicSuffix = GetRunicSuffix(modsComp);
+
+                                    if (!string.IsNullOrEmpty(runicSuffix))
+                                    {
+                                        if (!string.IsNullOrEmpty(identity.InternalNameOnly))
+                                        {
+                                            itemName = this.GetPrettyName(identity.InternalNameOnly, out isMapped);
+                                            if (!string.IsNullOrEmpty(itemName))
+                                            {
+                                                priceInfo = PoeNinjaPriceFetcher.GetPrice(itemName + " " + runicSuffix);
+                                            }
+                                        }
+                                    }
+
+                                    if (priceInfo == null && !string.IsNullOrEmpty(identity.Art))
                                     {
                                         priceInfo = PoeNinjaPriceFetcher.GetPriceByArt(identity.Art);
                                     }
+
                                     if (priceInfo == null && !string.IsNullOrEmpty(identity.InternalNameOnly))
                                     {
                                         itemName = this.GetPrettyName(identity.InternalNameOnly, out isMapped);
@@ -535,6 +552,39 @@ namespace RitualHelper
             } catch { }
         }
         private System.Collections.Generic.Dictionary<string, string> customNamesCache = null;
+
+        private static string GetRunicSuffix(IntPtr modsComp)
+        {
+            if (modsComp == IntPtr.Zero) return "";
+            
+            var implicitMods = Mem.Read<StdVector>(modsComp + 0xA0);
+            var first = implicitMods.First;
+            var last = implicitMods.Last;
+            var size = ((long)last - (long)first) / 0x40; // ModArrayStruct is 0x40 bytes
+            if (size <= 0 || size > 30) return "";
+            
+            for (long i = 0; i < size; i++)
+            {
+                var modEntry = first + (int)(i * 0x40);
+                var modsPtr = Mem.Read<IntPtr>(modEntry + 0x28);
+                if (modsPtr == IntPtr.Zero) continue;
+                
+                var modIdPtr = Mem.Read<IntPtr>(modsPtr);
+                if (modIdPtr == IntPtr.Zero) continue;
+                
+                var modId = Mem.ReadAsciiString(modIdPtr, 64);
+                if (modId.Contains("RuneForged", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Runeforged";
+                }
+                if (modId.Contains("RuneMastered", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Runemastered";
+                }
+            }
+            
+            return "";
+        }
 
         private string GetPrettyName(string internalName, out bool isMapped)
         {

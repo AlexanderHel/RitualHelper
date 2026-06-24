@@ -41,6 +41,11 @@ namespace RitualHelper
         
         private string SettingPathname => Path.Join(this.DllDirectory, "config", "settings.txt");
 
+        private IntPtr cachedSigEl = IntPtr.Zero;
+        private IntPtr lastUiRoot = IntPtr.Zero;
+        private readonly System.Diagnostics.Stopwatch scanThrottle = System.Diagnostics.Stopwatch.StartNew();
+        private const int ScanIntervalMs = 200;
+
         /// <inheritdoc/>
         public override void DrawSettings()
         {
@@ -87,7 +92,25 @@ namespace RitualHelper
                 var uiRoot = Core.States.InGameStateObject.GameUi.Address;
                 if (uiRoot != IntPtr.Zero)
                 {
-                    var sigEl = FindSignatureElement(uiRoot);
+                    if (uiRoot != this.lastUiRoot)
+                    {
+                        this.cachedSigEl = IntPtr.Zero;
+                        this.lastUiRoot = uiRoot;
+                        this.scanThrottle.Restart();
+                    }
+
+                    if (!IsSignatureElementValid(this.cachedSigEl))
+                    {
+                        this.cachedSigEl = IntPtr.Zero;
+                    }
+
+                    if (this.cachedSigEl == IntPtr.Zero && this.scanThrottle.ElapsedMilliseconds >= ScanIntervalMs)
+                    {
+                        this.scanThrottle.Restart();
+                        this.cachedSigEl = FindSignatureElement(uiRoot);
+                    }
+
+                    var sigEl = this.cachedSigEl;
                     if (sigEl != IntPtr.Zero)
                     {
                         var cur = sigEl;
@@ -449,6 +472,19 @@ namespace RitualHelper
             return IntPtr.Zero;
         }
 
+        private static bool IsSignatureElementValid(IntPtr el)
+        {
+            if (el == IntPtr.Zero) return false;
+            var u = (ulong)el;
+            if (u < 0x10000 || u > 0x7FFFFFFFFFFF) return false;
+            var flags = Mem.Read<uint>(el + 0x180);
+            if ((flags & (1u << 0x0B)) == 0) return false;
+            var t = Mem.ReadStdWString(el + 0x390);
+            return !string.IsNullOrEmpty(t) &&
+                   (t.Contains("Rituals Remaining", StringComparison.OrdinalIgnoreCase) ||
+                    t.Contains("tribute to the king", StringComparison.OrdinalIgnoreCase));
+        }
+
         private static bool TryUiElementRect(IntPtr el, float winW, float winH, out float x, out float y, out float w, out float h)
         {
             x = y = w = h = 0f;
@@ -648,6 +684,10 @@ namespace RitualHelper
         /// <inheritdoc/>
         public override void OnEnable(bool isGameOpened)
         {
+            this.cachedSigEl = IntPtr.Zero;
+            this.lastUiRoot = IntPtr.Zero;
+            this.scanThrottle.Restart();
+
             if (File.Exists(this.SettingPathname))
             {
                 try
@@ -696,7 +736,7 @@ namespace RitualHelper
                 
                 if (uiRoot != IntPtr.Zero)
                 {
-                    var sigEl = FindSignatureElement(uiRoot);
+                    var sigEl = this.cachedSigEl;
                     ImGui.Text($"Signature Element: 0x{sigEl.ToInt64():X}");
                     
                     if (sigEl != IntPtr.Zero)

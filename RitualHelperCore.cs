@@ -604,48 +604,95 @@ namespace RitualHelper
             
             if (this.customNamesCache == null)
             {
+                this.customNamesCache = new System.Collections.Generic.Dictionary<string, string>();
                 if (System.IO.File.Exists(dictionaryPath))
                 {
                     try
                     {
                         var content = System.IO.File.ReadAllText(dictionaryPath);
-                        this.customNamesCache = Newtonsoft.Json.JsonConvert.DeserializeObject<System.Collections.Generic.Dictionary<string, string>>(content);
+                        var loaded = Newtonsoft.Json.JsonConvert.DeserializeObject<System.Collections.Generic.Dictionary<string, string>>(content);
+                        if (loaded != null)
+                        {
+                            foreach (var kvp in loaded)
+                            {
+                                this.customNamesCache[kvp.Key] = kvp.Value;
+                            }
+                        }
                     }
                     catch { }
                 }
 
-                if (this.customNamesCache == null)
+                var defaults = new System.Collections.Generic.Dictionary<string, string>
                 {
-                    this.customNamesCache = new System.Collections.Generic.Dictionary<string, string>
+                    { "FourBelt3", "Wide Belt" },
+                    { "FourShieldStrDex4", "AdicioneONomeDoShieldAqui" },
+                    { "OmenGambleNoGoldCost", "Omen of Gambling" },
+                    { "HiddenItem1x1Ritual", "Hidden Ritual Item (1x1)" },
+                    { "HiddenItem1x2Ritual", "Hidden Ritual Item (1x2)" },
+                    { "HiddenItem1x3Ritual", "Hidden Ritual Item (1x3)" },
+                    { "HiddenItem1x4Ritual", "Hidden Ritual Item (1x4)" },
+                    { "HiddenItem2x2Ritual", "Hidden Ritual Item (2x2)" },
+                    { "HiddenItem2x3Ritual", "Hidden Ritual Item (2x3)" },
+                    { "HiddenItem2x4Ritual", "Hidden Ritual Item (2x4)" },
+                    { "FourCharm3", "Charm" },
+                    { "FourBodyStr6", "Strength Body Armour" },
+                    { "FourWand3", "Wand" },
+                    { "FourQuarterstaff5", "Quarterstaff" },
+                    { "FourStaff10", "Staff" },
+                    { "DistilledEmotion6", "Distilled Emotion" },
+                    { "CurrencyUpgradeToMagic3", "Orb of Transmutation" },
+                    { "MapKeyTier15", "Tier 15 Map" },
+                    { "FourRing3", "Ring" },
+                    { "ReservationGemUncut18", "Uncut Reservation Gem" },
+                    { "CurrencyArmourQuality", "Armourer's Scrap" },
+                    { "FourGlovesStr6", "Strength Gloves" },
+                    { "RitualCorruptedIdol2", "Idol of the Martyr" },
+                    { "RitualCorruptedIdol1", "Idol of the Sycophant" },
+                    { "RitualCorruptedIdol3", "Idol of the Pharisee" },
+                    { "AzmeriSocketableCat", "Cat Idol" },
+                    { "AzmeriSocketableBear", "Bear Idol" },
+                    { "AzmeriSocketableBoar", "Boar Idol" },
+                    { "IdoloAlira", "Idol of Alira" },
+                    { "AzmeriSocketableOwlSpecial", "Idol of Eeshta" },
+                    { "AzmeriSocketableCatSpecial", "Idol of Egrin" },
+                    { "IdolofEramir", "Idol of Eramir" },
+                    { "IdolofGreust", "Idol of Greust" },
+                    { "AzmeriSocketableStagSpecial", "Idol of Maxarius" },
+                    { "IdolofOak", "Idol of Oak" },
+                    { "AzmeriSocketableMonkeySpecial", "Idol of Ralakesh" },
+                    { "IdolofYeena", "Idol of Yeena" },
+                    { "AzmeriSocketableOwl", "Owl Idol" },
+                    { "AzmeriSocketableMonkey", "Primate Idol" },
+                    { "AzmeriSocketableStag", "Stag Idol" },
+                    { "AzmeriSocketableWolf", "Wolf Idol" },
+                    { "AzmeriSocketableFox", "Fox Idol" },
+                    { "AzmeriSocketableBearSpecial", "Idol of Grold" },
+                    { "IdoloKraityn", "Idol of Kraityn" },
+                    { "IdolofSilk", "Idol of Silk" },
+                    { "AzmeriSocketableWolfSpecial", "Idol of Sirrius" },
+                    { "AzmeriSocketableSnakeSpecial", "Idol of Thruldana" },
+                    { "AzmeriSocketableOx", "Ox Idol" },
+                    { "AzmeriSocketableRabbit", "Rabbit Idol" },
+                    { "AzmeriSocketableSnake", "Snake Idol" }
+                };
+
+                bool needsSave = false;
+                foreach (var kvp in defaults)
+                {
+                    if (!this.customNamesCache.ContainsKey(kvp.Key))
                     {
-                        { "FourBelt3", "Wide Belt" },
-                        { "FourShieldStrDex4", "AdicioneONomeDoShieldAqui" },
-                        { "OmenGambleNoGoldCost", "Omen of Gambling" },
-                        { "HiddenItem1x1Ritual", "Hidden Ritual Item (1x1)" },
-                        { "HiddenItem1x2Ritual", "Hidden Ritual Item (1x2)" },
-                        { "HiddenItem1x3Ritual", "Hidden Ritual Item (1x3)" },
-                        { "HiddenItem1x4Ritual", "Hidden Ritual Item (1x4)" },
-                        { "HiddenItem2x2Ritual", "Hidden Ritual Item (2x2)" },
-                        { "HiddenItem2x3Ritual", "Hidden Ritual Item (2x3)" },
-                        { "HiddenItem2x4Ritual", "Hidden Ritual Item (2x4)" },
-                        { "FourCharm3", "Charm" },
-                        { "FourBodyStr6", "Strength Body Armour" },
-                        { "FourWand3", "Wand" },
-                        { "FourQuarterstaff5", "Quarterstaff" },
-                        { "FourStaff10", "Staff" },
-                        { "DistilledEmotion6", "Distilled Emotion" },
-                        { "CurrencyUpgradeToMagic3", "Orb of Transmutation" },
-                        { "MapKeyTier15", "Tier 15 Map" },
-                        { "FourRing3", "Ring" },
-                        { "ReservationGemUncut18", "Uncut Reservation Gem" },
-                        { "CurrencyArmourQuality", "Armourer's Scrap" },
-                        { "FourGlovesStr6", "Strength Gloves" }
-                    };
-                    
-                    try 
+                        this.customNamesCache[kvp.Key] = kvp.Value;
+                        needsSave = true;
+                    }
+                }
+
+                if (needsSave || !System.IO.File.Exists(dictionaryPath))
+                {
+                    try
                     {
                         System.IO.File.WriteAllText(dictionaryPath, Newtonsoft.Json.JsonConvert.SerializeObject(this.customNamesCache, Newtonsoft.Json.Formatting.Indented));
-                    } catch { }
+                    }
+                    catch { }
                 }
             }
 

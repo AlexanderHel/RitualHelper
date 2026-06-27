@@ -114,17 +114,23 @@ namespace RitualHelper
                 {
                     client.DefaultRequestHeaders.Add("User-Agent", "RitualHelper-GameHelper-Plugin");
 
-                    // Exchange API (Ritual/Omens): primaryValue is in core.primary currency (divine)
-                    await FetchExchangeApi(client,
-                        "https://poe.ninja/poe2/api/economy/exchange/current/overview?league=Runes+of+Aldur&type=Ritual");
+                    // Exchange API (Ritual/Omens, Idols, Currency, Runes, SoulCores, Delirium)
+                    var exchangeTypes = new[] { "Ritual", "Idols", "Currency", "Runes", "SoulCores", "Delirium" };
+                    foreach (var type in exchangeTypes)
+                    {
+                        await FetchExchangeApi(client,
+                            $"https://poe.ninja/poe2/api/economy/exchange/current/overview?league=Runes+of+Aldur&type={type}");
+                    }
 
-                    // Stash APIs (Uniques): primaryValue is in Exalted Orbs
+                    // Stash APIs (Uniques)
                     var stashUrls = new[]
                     {
                         "https://poe.ninja/poe2/api/economy/stash/current/item/overview?league=Runes+of+Aldur&type=UniqueArmours",
                         "https://poe.ninja/poe2/api/economy/stash/current/item/overview?league=Runes+of+Aldur&type=UniqueAccessories",
                         "https://poe.ninja/poe2/api/economy/stash/current/item/overview?league=Runes+of+Aldur&type=UniqueCharms",
                         "https://poe.ninja/poe2/api/economy/stash/current/item/overview?league=Runes+of+Aldur&type=UniqueWeapons",
+                        "https://poe.ninja/poe2/api/economy/stash/current/item/overview?league=Runes+of+Aldur&type=UniqueJewels",
+                        "https://poe.ninja/poe2/api/economy/stash/current/item/overview?league=Runes+of+Aldur&type=UniqueFlasks",
                     };
 
                     foreach (var url in stashUrls)

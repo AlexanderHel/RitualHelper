@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout GameHelper
+        uses: actions/checkout@v4
+        with:
+          repository: AlexanderHel/GameHelper2
+          path: GameHelper2
+
+      - name: Checkout RitualHelper
+        uses: actions/checkout@v4
+        with:
+          path: GameHelper2/Plugins/RitualHelper
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build RitualHelper
+        run: |
+          dotnet build GameHelper2/Plugins/RitualHelper/RitualHelper.csproj -c Release
+
+      - name: Package Release
+        run: |
+          mkdir -p release/RitualHelper
+          cp GameHelper2/Plugins/RitualHelper/bin/Release/net10.0-windows/win-x64/RitualHelper.dll release/RitualHelper/
+          cp GameHelper2/Plugins/RitualHelper/bin/Release/net10.0-windows/win-x64/RitualHelper.pdb release/RitualHelper/
+          cd release
+          zip -r ../RitualHelper.zip RitualHelper
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: RitualHelper.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

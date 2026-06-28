@@ -12,8 +12,10 @@ namespace RitualHelper
     using System.Text;
     using GameHelper;
     using GameHelper.Plugin;
+    using GameHelper.Utils;
     using GameHelper.RemoteEnums;
     using GameHelper.RemoteObjects.Components;
+    using GameHelper.RemoteObjects.States;
     using GameHelper.RemoteObjects.States.InGameStateObjects;
     using GameOffsets.Objects.States.InGameState;
     using GameOffsets.Objects.UiElement;
@@ -51,6 +53,29 @@ namespace RitualHelper
         {
             ImGui.Checkbox("Show Ritual Overlay", ref this.Settings.ShowOverlay);
             ImGui.Checkbox("Debug Mode (Show All Inventories)", ref this.Settings.DebugMode);
+            ImGui.Checkbox("Show In Background (testing/verifying)", ref this.Settings.ShowInBackground);
+            ImGui.Separator();
+            ImGui.Checkbox("Draw Ritual Wisp Range Circle", ref this.Settings.DrawWispCircle);
+            if (this.Settings.DrawWispCircle)
+            {
+                ImGui.Indent();
+                ImGui.Checkbox("Hide Wisp Circle when game is in background or paused", ref this.Settings.HideWispCircleInBackgroundOrPaused);
+                ImGui.DragFloat("Circle Radius (Meters)##WispRadius", ref this.Settings.WispCircleRadiusMeters, 0.1f, 0.5f, 10f, "%.1f m");
+                ImGui.DragFloat("Circle Thickness##WispThickness", ref this.Settings.WispCircleThickness, 0.1f, 0.5f, 10f, "%.1f px");
+                
+                var colInside = this.Settings.WispCircleColorInside;
+                if (ImGui.ColorEdit4("Color (Inside Range)##WispInsideCol", ref colInside))
+                {
+                    this.Settings.WispCircleColorInside = colInside;
+                }
+                
+                var colOutside = this.Settings.WispCircleColorOutside;
+                if (ImGui.ColorEdit4("Color (Outside Range)##WispOutsideCol", ref colOutside))
+                {
+                    this.Settings.WispCircleColorOutside = colOutside;
+                }
+                ImGui.Unindent();
+            }
             ImGui.Separator();
             ImGui.TextWrapped(
                 "This plugin uses a signature-based BFS scan to locate the post-ritual tribute shop " +
@@ -66,12 +91,43 @@ namespace RitualHelper
         /// <inheritdoc/>
         public override void DrawUI()
         {
-            if (!this.Settings.ShowOverlay && !this.Settings.DebugMode)
+            if (Core.States.GameCurrentState is not (GameStateTypes.InGameState or GameStateTypes.EscapeState))
             {
                 return;
             }
 
-            if (Core.States.GameCurrentState != GameStateTypes.InGameState || !Core.Process.Foreground)
+            var inGameState = Core.States.InGameStateObject;
+            var areaInstance = inGameState?.CurrentAreaInstance;
+            if (areaInstance != null && this.Settings.DrawWispCircle)
+            {
+                bool shouldDrawWisp = true;
+
+                if (this.Settings.HideWispCircleInBackgroundOrPaused)
+                {
+                    if (!Core.Process.Foreground || Core.States.GameCurrentState != GameStateTypes.InGameState)
+                    {
+                        shouldDrawWisp = false;
+                    }
+                }
+
+                if (shouldDrawWisp)
+                {
+                    this.DrawWispOverlay(inGameState, areaInstance);
+                }
+            }
+
+            // General checks for pricing overlay / debug mode
+            if (Core.States.GameCurrentState != GameStateTypes.InGameState)
+            {
+                return;
+            }
+
+            if (!Core.Process.Foreground && !this.Settings.ShowInBackground)
+            {
+                return;
+            }
+
+            if (!this.Settings.ShowOverlay && !this.Settings.DebugMode)
             {
                 return;
             }
@@ -815,6 +871,77 @@ namespace RitualHelper
                 }
             }
             ImGui.End();
+        }
+
+        private void DrawWispOverlay(InGameState inGameState, AreaInstance areaInstance)
+        {
+            var player = areaInstance.Player;
+            if (player == null) return;
+
+            var drawList = ImGui.GetBackgroundDrawList();
+            var worldInstance = inGameState.CurrentWorldInstance;
+            if (worldInstance == null) return;
+
+            foreach (var kvp in areaInstance.AwakeEntities)
+            {
+                var ent = kvp.Value;
+                if (ent == null || !ent.IsValid) continue;
+
+                if (ent.Path.Contains("Metadata/Monsters/LeagueRitual/RitualWispDaemon", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (ent.TryGetComponent<Render>(out var rComp))
+                    {
+                        var wispWorldPos = rComp.WorldPosition;
+                        var distanceGrid = player.DistanceFrom(ent);
+                        float radiusGrid = this.Settings.WispCircleRadiusMeters * 10f;
+                        float worldRadius = radiusGrid * (250f / 23f);
+
+                        bool isInside = distanceGrid <= radiusGrid;
+                        var colorV4 = isInside ? this.Settings.WispCircleColorInside : this.Settings.WispCircleColorOutside;
+                        uint color = ImGuiHelper.Color(colorV4);
+
+                        this.Draw3DCircle(drawList, inGameState, new Vector3(wispWorldPos.X, wispWorldPos.Y, wispWorldPos.Z), rComp.TerrainHeight, worldRadius, color, this.Settings.WispCircleThickness);
+                    }
+                }
+            }
+        }
+
+        private void Draw3DCircle(ImDrawListPtr drawList, InGameState inGameState, Vector3 centerWorldPos, float terrainHeight, float radius, uint color, float thickness = 2f)
+        {
+            var worldInstance = inGameState.CurrentWorldInstance;
+            if (worldInstance == null) return;
+
+            const int numPoints = 36;
+            Vector2[] points = new Vector2[numPoints];
+            int validPointsCount = 0;
+
+            for (int i = 0; i < numPoints; i++)
+            {
+                float angle = i * 2f * MathF.PI / numPoints;
+                var pWorld = new Vector3(
+                    centerWorldPos.X + radius * MathF.Cos(angle),
+                    centerWorldPos.Y + radius * MathF.Sin(angle),
+                    terrainHeight
+                );
+                var screenPos = worldInstance.WorldToScreen(new StdTuple3D<float> { X = pWorld.X, Y = pWorld.Y, Z = pWorld.Z }, pWorld.Z);
+                if (screenPos != Vector2.Zero)
+                {
+                    points[validPointsCount++] = screenPos;
+                }
+            }
+
+            if (validPointsCount > 1)
+            {
+                for (int i = 0; i < validPointsCount; i++)
+                {
+                    var p1 = points[i];
+                    var p2 = points[(i + 1) % validPointsCount];
+                    if (Vector2.Distance(p1, p2) < 500f)
+                    {
+                        drawList.AddLine(p1, p2, color, thickness);
+                    }
+                }
+            }
         }
     }
 }

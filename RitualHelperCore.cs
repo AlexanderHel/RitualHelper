@@ -53,7 +53,6 @@ namespace RitualHelper
         {
             ImGui.Checkbox("Show Ritual Overlay", ref this.Settings.ShowOverlay);
             ImGui.Checkbox("Debug Mode (Show All Inventories)", ref this.Settings.DebugMode);
-            ImGui.Checkbox("Show In Background (testing/verifying)", ref this.Settings.ShowInBackground);
             ImGui.Separator();
             ImGui.Checkbox("Draw Ritual Wisp Range Circle", ref this.Settings.DrawWispCircle);
             if (this.Settings.DrawWispCircle)
@@ -122,7 +121,7 @@ namespace RitualHelper
                 return;
             }
 
-            if (!Core.Process.Foreground && !this.Settings.ShowInBackground)
+            if (!Core.Process.Foreground)
             {
                 return;
             }
@@ -887,7 +886,7 @@ namespace RitualHelper
                 var ent = kvp.Value;
                 if (ent == null || !ent.IsValid) continue;
 
-                if (ent.Path.Contains("Metadata/Monsters/LeagueRitual/RitualWispDaemon", StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrEmpty(ent.Path) && ent.Path.Contains("Metadata/Monsters/LeagueRitual/RitualWispDaemon", StringComparison.OrdinalIgnoreCase))
                 {
                     if (ent.TryGetComponent<Render>(out var rComp))
                     {

@@ -24,11 +24,6 @@ namespace RitualHelper
         public bool DebugMode = false;
 
         /// <summary>
-        ///     Gets or sets a value indicating whether to draw overlay when the game window is in the background.
-        /// </summary>
-        public bool ShowInBackground = false;
-
-        /// <summary>
         ///     Gets or sets a value indicating whether to hide the wisp range circle when the game is in the background or paused.
         /// </summary>
         public bool HideWispCircleInBackgroundOrPaused = false;

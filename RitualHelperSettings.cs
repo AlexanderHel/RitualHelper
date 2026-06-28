@@ -57,5 +57,25 @@ namespace RitualHelper
         ///     Gets or sets the thickness of the wisp circle.
         /// </summary>
         public float WispCircleThickness = 2.0f;
+
+        /// <summary>
+        ///     Gets or sets a value indicating whether to sample terrain height dynamically for the wisp circle.
+        /// </summary>
+        public bool WispCircleSampleTerrain = true;
+
+        /// <summary>
+        ///     Gets or sets the X offset for the wisp circle center.
+        /// </summary>
+        public float WispCircleOffsetX = 0.0f;
+
+        /// <summary>
+        ///     Gets or sets the Y offset for the wisp circle center.
+        /// </summary>
+        public float WispCircleOffsetY = 0.0f;
+
+        /// <summary>
+        ///     Gets or sets the Z offset (height) for the wisp circle.
+        /// </summary>
+        public float WispCircleOffsetZ = 0.0f;
     }
 }

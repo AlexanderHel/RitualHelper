@@ -75,6 +75,11 @@ namespace RitualHelper
                 {
                     this.Settings.WispCircleColorOutside = colOutside;
                 }
+
+                ImGui.Checkbox("Sample Terrain Height Dynamically", ref this.Settings.WispCircleSampleTerrain);
+                ImGui.DragFloat("Offset Center X##WispOffsetX", ref this.Settings.WispCircleOffsetX, 0.5f, -500f, 500f, "%.1f");
+                ImGui.DragFloat("Offset Center Y##WispOffsetY", ref this.Settings.WispCircleOffsetY, 0.5f, -500f, 500f, "%.1f");
+                ImGui.DragFloat("Offset Height Z##WispOffsetZ", ref this.Settings.WispCircleOffsetZ, 0.5f, -500f, 500f, "%.1f");
                 ImGui.Unindent();
             }
             ImGui.Separator();
@@ -988,30 +993,68 @@ namespace RitualHelper
                         var colorV4 = isInside ? this.Settings.WispCircleColorInside : this.Settings.WispCircleColorOutside;
                         uint color = ImGuiHelper.Color(colorV4);
 
-                        this.Draw3DCircle(drawList, inGameState, new Vector3(wispWorldPos.X, wispWorldPos.Y, wispWorldPos.Z), rComp.TerrainHeight, worldRadius, color, this.Settings.WispCircleThickness);
+                        var centerPos = new Vector3(
+                            wispWorldPos.X + this.Settings.WispCircleOffsetX,
+                            wispWorldPos.Y + this.Settings.WispCircleOffsetY,
+                            wispWorldPos.Z + this.Settings.WispCircleOffsetZ
+                        );
+
+                        this.Draw3DCircle(
+                            drawList,
+                            inGameState,
+                            centerPos,
+                            rComp.TerrainHeight + this.Settings.WispCircleOffsetZ,
+                            worldRadius,
+                            color,
+                            this.Settings.WispCircleThickness,
+                            this.Settings.WispCircleSampleTerrain
+                        );
                     }
                 }
             }
         }
 
-        private void Draw3DCircle(ImDrawListPtr drawList, InGameState inGameState, Vector3 centerWorldPos, float terrainHeight, float radius, uint color, float thickness = 2f)
+        private void Draw3DCircle(
+            ImDrawListPtr drawList,
+            InGameState inGameState,
+            Vector3 centerWorldPos,
+            float terrainHeight,
+            float radius,
+            uint color,
+            float thickness = 2f,
+            bool sampleTerrain = true)
         {
             var worldInstance = inGameState.CurrentWorldInstance;
             if (worldInstance == null) return;
+
+            var areaInstance = inGameState.CurrentAreaInstance;
 
             const int numPoints = 36;
             Vector2[] points = new Vector2[numPoints];
             int validPointsCount = 0;
 
+            var gridToWorld = TileStructure.TileToWorldConversion / TileStructure.TileToGridConversion;
+
             for (int i = 0; i < numPoints; i++)
             {
                 float angle = i * 2f * MathF.PI / numPoints;
-                var pWorld = new Vector3(
-                    centerWorldPos.X + radius * MathF.Cos(angle),
-                    centerWorldPos.Y + radius * MathF.Sin(angle),
-                    terrainHeight
-                );
-                var screenPos = worldInstance.WorldToScreen(new StdTuple3D<float> { X = pWorld.X, Y = pWorld.Y, Z = pWorld.Z }, pWorld.Z);
+                float ptX = centerWorldPos.X + radius * MathF.Cos(angle);
+                float ptY = centerWorldPos.Y + radius * MathF.Sin(angle);
+                float ptZ = terrainHeight;
+
+                if (sampleTerrain && areaInstance != null && areaInstance.GridHeightData != null)
+                {
+                    int gridX = (int)(ptX / gridToWorld);
+                    int gridY = (int)(ptY / gridToWorld);
+
+                    if (gridY >= 0 && gridY < areaInstance.GridHeightData.Length &&
+                        gridX >= 0 && gridX < areaInstance.GridHeightData[gridY].Length)
+                    {
+                        ptZ = areaInstance.GridHeightData[gridY][gridX];
+                    }
+                }
+
+                var screenPos = worldInstance.WorldToScreen(new StdTuple3D<float> { X = ptX, Y = ptY, Z = ptZ }, ptZ);
                 if (screenPos != Vector2.Zero)
                 {
                     points[validPointsCount++] = screenPos;

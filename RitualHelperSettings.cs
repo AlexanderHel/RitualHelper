@@ -24,6 +24,11 @@ namespace RitualHelper
         public bool DebugMode = false;
 
         /// <summary>
+        ///     Gets or sets a value indicating whether to force the signature BFS fallback search.
+        /// </summary>
+        public bool ForceBfsFallback = false;
+
+        /// <summary>
         ///     Gets or sets a value indicating whether to hide the wisp range circle when the game is in the background or paused.
         /// </summary>
         public bool HideWispCircleInBackgroundOrPaused = false;

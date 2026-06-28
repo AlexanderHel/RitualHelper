@@ -45,16 +45,16 @@ namespace RitualHelper
         
         private string SettingPathname => Path.Join(this.DllDirectory, "config", "settings.txt");
 
-        private IntPtr cachedSigEl = IntPtr.Zero;
+        private IntPtr scannedGridAddr = IntPtr.Zero;
         private IntPtr lastUiRoot = IntPtr.Zero;
-        private readonly System.Diagnostics.Stopwatch scanThrottle = System.Diagnostics.Stopwatch.StartNew();
-        private const int ScanIntervalMs = 200;
+        private DateTime nextScanUtc = DateTime.MinValue;
 
         /// <inheritdoc/>
         public override void DrawSettings()
         {
             ImGui.Checkbox("Show Ritual Overlay", ref this.Settings.ShowOverlay);
             ImGui.Checkbox("Debug Mode (Show All Inventories)", ref this.Settings.DebugMode);
+            ImGui.Checkbox("Force BFS window search (testing)", ref this.Settings.ForceBfsFallback);
             ImGui.Separator();
             ImGui.Checkbox("Draw Ritual Wisp Range Circle", ref this.Settings.DrawWispCircle);
             if (this.Settings.DrawWispCircle)
@@ -85,7 +85,7 @@ namespace RitualHelper
             {
                 ImGui.Separator();
                 ImGui.Text($"UI Root Address: 0x{Core.States.InGameStateObject.GameUi.Address.ToInt64():X}");
-                ImGui.Text($"Cached Sig Element: 0x{this.cachedSigEl.ToInt64():X}");
+                ImGui.Text($"Scanned Grid Address: 0x{this.scannedGridAddr.ToInt64():X}");
                 ImGui.Text($"Last Scan Status: {debugLastSigSearchStatus}");
                 ImGui.Text($"Visited Elements Count: {debugVisitedCount}");
                 if (ImGui.TreeNode("Sample Text Values Scanned"))
@@ -170,36 +170,39 @@ namespace RitualHelper
                 {
                     if (uiRoot != this.lastUiRoot)
                     {
-                        this.cachedSigEl = IntPtr.Zero;
+                        this.scannedGridAddr = IntPtr.Zero;
                         this.lastUiRoot = uiRoot;
-                        this.scanThrottle.Restart();
+                        this.nextScanUtc = DateTime.MinValue;
                     }
 
-                    if (!IsSignatureElementValid(this.cachedSigEl))
+                    // FAST PATH: fixed index chain root.children[76].children[13] = reward grid.
+                    var fastGridAddr = IntPtr.Zero;
+                    var fastChainValid = false;
+                    if (ChildSpan(uiRoot, out var rootFirst, out var rootCount) && rootCount > 76)
                     {
-                        this.cachedSigEl = IntPtr.Zero;
-                    }
-
-                    if (this.cachedSigEl == IntPtr.Zero && this.scanThrottle.ElapsedMilliseconds >= ScanIntervalMs)
-                    {
-                        this.scanThrottle.Restart();
-                        this.cachedSigEl = FindSignatureElement(uiRoot);
-                    }
-
-                    var sigEl = this.cachedSigEl;
-                    if (sigEl != IntPtr.Zero)
-                    {
-                        var cur = sigEl;
-                        IntPtr grid = IntPtr.Zero;
-                        for (var up = 0; up < 8 && grid == IntPtr.Zero; up++)
+                        var child76 = Ptr(rootFirst + 76 * 8);
+                        if (child76 != IntPtr.Zero && ChildSpan(child76, out var child76First, out var child76Count) && child76Count > 13)
                         {
-                            grid = FindRewardGrid(cur);
-                            var parent = Ptr(cur + 0xB8); // Parent offset is 0xB8
-                            if (parent == IntPtr.Zero) break;
-                            cur = parent;
+                            fastGridAddr = Ptr(child76First + 13 * 8);
+                            fastChainValid = fastGridAddr != IntPtr.Zero;
                         }
+                    }
 
-                        if (grid != IntPtr.Zero && ChildSpan(grid, out var gf, out var gn))
+                    var grid = IntPtr.Zero;
+                    if (!this.Settings.ForceBfsFallback && fastChainValid)
+                    {
+                        var flags = Mem.Read<uint>(fastGridAddr + 0x180);
+                        if (UiElementBaseFuncs.IsVisibleChecker(flags))
+                        {
+                            grid = fastGridAddr;
+                        }
+                    }
+                    else
+                    {
+                        this.TryScanRitualWindowThrottled(uiRoot, out grid);
+                    }
+
+                    if (grid != IntPtr.Zero && ChildSpan(grid, out var gf, out var gn))
                         {
                             var fgDraw = ImGui.GetForegroundDrawList();
                             float winW = Core.Process.WindowArea.Width;
@@ -327,7 +330,6 @@ namespace RitualHelper
                                 }
                             }
                         }
-                    }
                 }
             }
             catch { }
@@ -510,21 +512,77 @@ namespace RitualHelper
             return best;
         }
 
-        private static IntPtr FindSignatureElement(IntPtr uiRoot)
+        private bool IsValidRewardGrid(IntPtr gridAddr)
         {
-            if (uiRoot == IntPtr.Zero)
+            if (gridAddr == IntPtr.Zero) return false;
+            try
+            {
+                var flags = Mem.Read<uint>(gridAddr + 0x180);
+                if (!UiElementBaseFuncs.IsVisibleChecker(flags))
+                {
+                    return false;
+                }
+
+                if (!ChildSpan(gridAddr, out var gf, out var gn) || gn < 1 || gn > 16)
+                {
+                    return false;
+                }
+
+                for (long i = 0; i < gn; i++)
+                {
+                    var tile = Ptr(gf + (int)(i * 8));
+                    if (TileItem(tile) != IntPtr.Zero)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool TryScanRitualWindowThrottled(IntPtr gameUiRoot, out IntPtr gridAddr)
+        {
+            if (this.scannedGridAddr != IntPtr.Zero && this.IsValidRewardGrid(this.scannedGridAddr))
+            {
+                gridAddr = this.scannedGridAddr;
+                return true;
+            }
+
+            this.scannedGridAddr = IntPtr.Zero;
+            var now = DateTime.UtcNow;
+            if (now >= this.nextScanUtc)
+            {
+                this.nextScanUtc = now.AddMilliseconds(750);
+                this.scannedGridAddr = this.FindRitualRewardGrid(gameUiRoot);
+            }
+
+            gridAddr = this.scannedGridAddr;
+            return gridAddr != IntPtr.Zero;
+        }
+
+        private IntPtr FindRitualRewardGrid(IntPtr gameUiRoot)
+        {
+            if (gameUiRoot == IntPtr.Zero)
             {
                 debugLastSigSearchStatus = "uiRoot is Zero";
                 return IntPtr.Zero;
             }
 
             var queue = new Queue<IntPtr>();
-            queue.Enqueue(uiRoot);
             var visited = new HashSet<IntPtr>();
+            queue.Enqueue(gameUiRoot);
+            var sigEl = IntPtr.Zero;
+
             lock (debugSampleTexts)
             {
                 debugSampleTexts.Clear();
             }
+
             while (queue.Count > 0 && visited.Count < 20000)
             {
                 var el = queue.Dequeue();
@@ -532,7 +590,7 @@ namespace RitualHelper
 
                 var flags = Mem.Read<uint>(el + 0x180);
                 var visible = (flags & (1u << 0x0B)) != 0;
-                if (!visible && el != uiRoot) continue; // prune invisible subtree
+                if (!visible && el != gameUiRoot) continue; // prune invisible subtrees
 
                 if (ChildSpan(el, out var f, out var nn))
                 {
@@ -556,28 +614,33 @@ namespace RitualHelper
                     if (t.Length >= 6 && (t.Contains("Ritual Remaining", StringComparison.OrdinalIgnoreCase) ||
                                           t.Contains("tribute to the king", StringComparison.OrdinalIgnoreCase)))
                     {
-                        debugLastSigSearchStatus = $"Found at 0x{el.ToInt64():X} with text '{t}'";
-                        debugVisitedCount = visited.Count;
-                        return el;
+                        sigEl = el;
+                        debugLastSigSearchStatus = $"Found sig at 0x{el.ToInt64():X} with text '{t}'";
+                        break;
                     }
                 }
             }
-            debugVisitedCount = visited.Count;
-            debugLastSigSearchStatus = $"Finished scan, visited {visited.Count} elements, sig not found";
-            return IntPtr.Zero;
-        }
 
-        private static bool IsSignatureElementValid(IntPtr el)
-        {
-            if (el == IntPtr.Zero) return false;
-            var u = (ulong)el;
-            if (u < 0x10000 || u > 0x7FFFFFFFFFFF) return false;
-            var flags = Mem.Read<uint>(el + 0x180);
-            if ((flags & (1u << 0x0B)) == 0) return false;
-            var t = Mem.ReadStdWString(el + 0x390);
-            return !string.IsNullOrEmpty(t) &&
-                   (t.Contains("Ritual Remaining", StringComparison.OrdinalIgnoreCase) ||
-                    t.Contains("tribute to the king", StringComparison.OrdinalIgnoreCase));
+            debugVisitedCount = visited.Count;
+
+            if (sigEl == IntPtr.Zero)
+            {
+                debugLastSigSearchStatus = $"Finished scan, visited {visited.Count} elements, sig not found";
+                return IntPtr.Zero;
+            }
+
+            // Walk up from the signature element; at each ancestor look for the reward grid.
+            var cur = sigEl;
+            for (var up = 0; up < 8; up++)
+            {
+                var grid = FindRewardGrid(cur);
+                if (grid != IntPtr.Zero) return grid;
+                var parent = Ptr(cur + 0xB8); // Parent offset is 0xB8
+                if (parent == IntPtr.Zero) break;
+                cur = parent;
+            }
+
+            return IntPtr.Zero;
         }
 
         private static bool TryUiElementRect(IntPtr el, float winW, float winH, out float x, out float y, out float w, out float h)
@@ -826,9 +889,9 @@ namespace RitualHelper
         /// <inheritdoc/>
         public override void OnEnable(bool isGameOpened)
         {
-            this.cachedSigEl = IntPtr.Zero;
+            this.scannedGridAddr = IntPtr.Zero;
             this.lastUiRoot = IntPtr.Zero;
-            this.scanThrottle.Restart();
+            this.nextScanUtc = DateTime.MinValue;
 
             if (File.Exists(this.SettingPathname))
             {
@@ -878,34 +941,20 @@ namespace RitualHelper
                 
                 if (uiRoot != IntPtr.Zero)
                 {
-                    var sigEl = this.cachedSigEl;
-                    ImGui.Text($"Signature Element: 0x{sigEl.ToInt64():X}");
+                    var grid = this.scannedGridAddr;
+                    ImGui.Text($"Reward Grid Element: 0x{grid.ToInt64():X}");
                     
-                    if (sigEl != IntPtr.Zero)
+                    if (grid != IntPtr.Zero && ChildSpan(grid, out var gf, out var gn))
                     {
-                        var cur = sigEl;
-                        IntPtr grid = IntPtr.Zero;
-                        for (var up = 0; up < 8 && grid == IntPtr.Zero; up++)
+                        ImGui.Text($"Grid Children Count: {gn}");
+                        var itemsFound = 0;
+                        for (long i = 0; i < gn; i++)
                         {
-                            grid = FindRewardGrid(cur);
-                            var parent = Ptr(cur + 0xB8);
-                            if (parent == IntPtr.Zero) break;
-                            cur = parent;
+                            var tile = Ptr(gf + (int)(i * 8));
+                            var item = TileItem(tile);
+                            if (item != IntPtr.Zero) itemsFound++;
                         }
-                        ImGui.Text($"Reward Grid Element: 0x{grid.ToInt64():X}");
-                        
-                        if (grid != IntPtr.Zero && ChildSpan(grid, out var gf, out var gn))
-                        {
-                            ImGui.Text($"Grid Children Count: {gn}");
-                            var itemsFound = 0;
-                            for (long i = 0; i < gn; i++)
-                            {
-                                var tile = Ptr(gf + (int)(i * 8));
-                                var item = TileItem(tile);
-                                if (item != IntPtr.Zero) itemsFound++;
-                            }
-                            ImGui.Text($"Grid Items Found: {itemsFound}");
-                        }
+                        ImGui.Text($"Grid Items Found: {itemsFound}");
                     }
                 }
             }

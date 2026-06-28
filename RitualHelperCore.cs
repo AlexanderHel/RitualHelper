@@ -39,7 +39,9 @@ namespace RitualHelper
         private static readonly Vector4 ColorGemV4 = new(0.2f, 0.8f, 0.8f, 1f);
         private static readonly Vector4 ColorHeaderV4 = new(1f, 0.84f, 0f, 1f);
 
-
+        private static int debugVisitedCount = 0;
+        private static string debugLastSigSearchStatus = "Not scanned yet";
+        private static readonly List<string> debugSampleTexts = new();
         
         private string SettingPathname => Path.Join(this.DllDirectory, "config", "settings.txt");
 
@@ -79,6 +81,25 @@ namespace RitualHelper
             ImGui.TextWrapped(
                 "This plugin uses a signature-based BFS scan to locate the post-ritual tribute shop " +
                 "and displays prices below each item. Open the Ritual window in-game for items to appear.");
+            if (this.Settings.DebugMode)
+            {
+                ImGui.Separator();
+                ImGui.Text($"UI Root Address: 0x{Core.States.InGameStateObject.GameUi.Address.ToInt64():X}");
+                ImGui.Text($"Cached Sig Element: 0x{this.cachedSigEl.ToInt64():X}");
+                ImGui.Text($"Last Scan Status: {debugLastSigSearchStatus}");
+                ImGui.Text($"Visited Elements Count: {debugVisitedCount}");
+                if (ImGui.TreeNode("Sample Text Values Scanned"))
+                {
+                    lock (debugSampleTexts)
+                    {
+                        foreach (var s in debugSampleTexts)
+                        {
+                            ImGui.Text(s);
+                        }
+                    }
+                    ImGui.TreePop();
+                }
+            }
         }
 
         /// <inheritdoc/>
@@ -491,11 +512,19 @@ namespace RitualHelper
 
         private static IntPtr FindSignatureElement(IntPtr uiRoot)
         {
-            if (uiRoot == IntPtr.Zero) return IntPtr.Zero;
+            if (uiRoot == IntPtr.Zero)
+            {
+                debugLastSigSearchStatus = "uiRoot is Zero";
+                return IntPtr.Zero;
+            }
 
             var queue = new Queue<IntPtr>();
             queue.Enqueue(uiRoot);
             var visited = new HashSet<IntPtr>();
+            lock (debugSampleTexts)
+            {
+                debugSampleTexts.Clear();
+            }
             while (queue.Count > 0 && visited.Count < 20000)
             {
                 var el = queue.Dequeue();
@@ -515,15 +544,26 @@ namespace RitualHelper
 
                 var textAddr = el + 0x390;
                 var t = Mem.ReadStdWString(textAddr);
-                if (!string.IsNullOrEmpty(t) && t.Length >= 6)
+                if (!string.IsNullOrEmpty(t))
                 {
-                    if (t.Contains("Rituals Remaining", StringComparison.OrdinalIgnoreCase) ||
-                        t.Contains("tribute to the king", StringComparison.OrdinalIgnoreCase))
+                    lock (debugSampleTexts)
                     {
+                        if (debugSampleTexts.Count < 15)
+                        {
+                            debugSampleTexts.Add(t);
+                        }
+                    }
+                    if (t.Length >= 6 && (t.Contains("Ritual Remaining", StringComparison.OrdinalIgnoreCase) ||
+                                          t.Contains("tribute to the king", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        debugLastSigSearchStatus = $"Found at 0x{el.ToInt64():X} with text '{t}'";
+                        debugVisitedCount = visited.Count;
                         return el;
                     }
                 }
             }
+            debugVisitedCount = visited.Count;
+            debugLastSigSearchStatus = $"Finished scan, visited {visited.Count} elements, sig not found";
             return IntPtr.Zero;
         }
 
@@ -536,7 +576,7 @@ namespace RitualHelper
             if ((flags & (1u << 0x0B)) == 0) return false;
             var t = Mem.ReadStdWString(el + 0x390);
             return !string.IsNullOrEmpty(t) &&
-                   (t.Contains("Rituals Remaining", StringComparison.OrdinalIgnoreCase) ||
+                   (t.Contains("Ritual Remaining", StringComparison.OrdinalIgnoreCase) ||
                     t.Contains("tribute to the king", StringComparison.OrdinalIgnoreCase));
         }
 

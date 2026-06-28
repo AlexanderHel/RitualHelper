@@ -55,14 +55,14 @@ namespace RitualHelper
         {
             if (addr == IntPtr.Zero) return string.Empty;
             
-            var wstr = Read<StdWString>(addr);
-            if (wstr.Length <= 0 || wstr.Length > 1000 || wstr.Capacity < 0) return string.Empty;
+            var len = Read<int>(addr + 0x10);
+            if (len <= 0 || len > 1000) return string.Empty;
 
-            var byteLength = wstr.Length * 2;
+            var byteLength = len * 2;
             byte[] bytes;
 
             // Small String Optimization (SSO)
-            if (wstr.Capacity <= 8)
+            if (len < 8)
             {
                 // String is stored directly in the struct memory where the pointers would normally be.
                 // We read directly from the struct's address space.
@@ -70,8 +70,10 @@ namespace RitualHelper
             }
             else
             {
-                if (wstr.Buffer == IntPtr.Zero) return string.Empty;
-                bytes = ReadBytes(wstr.Buffer, byteLength);
+                var bufferPtr = Read<IntPtr>(addr);
+                var u = (ulong)bufferPtr;
+                if (u < 0x10000 || u > 0x7FFFFFFFFFFF) return string.Empty;
+                bytes = ReadBytes(bufferPtr, byteLength);
             }
 
             if (bytes == null || bytes.Length == 0) return string.Empty;
